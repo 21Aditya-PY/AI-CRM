@@ -79,7 +79,7 @@ CRITICAL RULES:
 JSON structure to return:
 {{
   "hcp_name": "Full doctor name with Dr. prefix e.g. Dr. Priya Singh",
-  "attendees": "Others present e.g. nurse Sarah, team OR empty string",
+  "attendees": "ONLY if EXPLICITLY mentioned e.g. nurse Sarah, team OR empty string",
   "interaction_type": "EXACT: Meeting/Phone Call/Email/Conference/Virtual Meeting/CME Event",
   "sentiment": "Positive/Negative/Neutral",
   "materials_shared": "comma-separated list of any PDFs, brochures, materials given",
