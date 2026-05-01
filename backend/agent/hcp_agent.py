@@ -389,6 +389,8 @@ RULES:
 - field names for edit must be snake_case: hcp_name, interaction_type, topics_discussed, sentiment, outcomes, follow_up_actions
 - Never ask for clarification if you can infer intent from context
 - Always confirm what was logged/edited in your response
+- For search_hcp results → always list each HCP name, hospital and city
+- For get_interaction_history results → always summarize each interaction with date, type and sentiment
 
 EXAMPLES:
 User: "Log meeting with Dr Sharma about trial data, positive"
@@ -433,7 +435,16 @@ hcp_agent = graph.compile()
 
 async def run_agent(user_message: str, history: list = []) -> dict:
     messages = [HumanMessage(content=user_message)]
-    result = await hcp_agent.ainvoke({"messages": messages})
+    
+    try:
+        result = await hcp_agent.ainvoke({"messages": messages})
+    except Exception as e:
+        logger.error(f"[run_agent] invoke failed: {e}")
+        return {
+            "message": "Sorry, the AI encountered an error. Please try again.",
+            "extracted_data": None,
+            "tool_used": None,
+        }
 
     final_msg = result["messages"][-1].content
     extracted_data = None
@@ -460,9 +471,13 @@ async def run_agent(user_message: str, history: list = []) -> dict:
                         content = json.loads(fixed)
 
                 if isinstance(content, dict) and content.get("success"):
-                    raw = content.get("extracted") or content.get("record") or (
-                    content if content.get("interactions") is not None else None
-                )
+                    raw = (
+                        content.get("extracted")
+                        or content.get("record")
+                        or (content if content.get("interactions") is not None else None)
+                        or (content if content.get("results") is not None else None)
+                        or (content if content.get("suggestions") is not None else None)
+                    )
                     if raw:
                         extracted_data = json.loads(json.dumps(raw, default=str))
                         break
