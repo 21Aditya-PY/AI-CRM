@@ -13,6 +13,27 @@ const SAMPLE_PROMPTS = [
   'Distributed 2 samples of NeuroClear to Dr. Kumar at AIIMS, follow up next week',
 ];
 
+// ── Session memory — survives re-renders, dies when tab closes ─────────────────
+let activeInteractionId = null;
+
+function buildMessage(userText) {
+  const hasExplicitId = /INT-[A-Z0-9]+/.test(userText);
+
+  if (hasExplicitId) {
+    // User typed an ID themselves — update our active pointer
+    const match = userText.match(/INT-[A-Z0-9]+/);
+    if (match) activeInteractionId = match[0];
+    return userText;
+  }
+
+  if (activeInteractionId) {
+    // Silently inject the active ID so the agent can find it
+    return `[Ref: ${activeInteractionId}] ${userText}`;
+  }
+
+  return userText;
+}
+
 // ── Mock parser ────────────────────────────────────────────────────────────────
 function mockParseInteraction(text) {
   const lower = text.toLowerCase();
@@ -61,6 +82,7 @@ function mapBackendRecord(record) {
     aiSuggestedFollowUps: ensureArray(record.ai_suggested_follow_ups || record.aiSuggestedFollowUps || []),
     date: record.date || '',
     time: record.time || '',
+    id: record.id || '',
   };
 }
 
@@ -109,6 +131,17 @@ export default function ChatPanel() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const [localInput, setLocalInput] = useState('');
+
+  // Clear activeInteractionId when component unmounts or tab closes
+  useEffect(() => {
+    const clear = () => { activeInteractionId = null; };
+    window.addEventListener('beforeunload', clear);
+    return () => {
+      window.removeEventListener('beforeunload', clear);
+      activeInteractionId = null;
+    };
+  }, []);
+
   const handleSend = async () => {
     const msg = localInput.trim();
     if (!msg || isAiThinking) return;
@@ -127,29 +160,49 @@ export default function ChatPanel() {
 
     try {
       let assistantText = '';
-      let usedMock = false;
 
       try {
         const history = chatMessages.map(m => ({ role: m.role, content: m.content }));
-        const result = await chatWithAgent(msg, history);
+
+        // Inject activeInteractionId into the message if needed
+        const messageToSend = buildMessage(msg);
+
+        const result = await chatWithAgent(messageToSend, history);
 
         assistantText = result.message || '';
         tool_used = result.tool_used;
 
-        if (tool_used === 'get_interaction_history' && result.extracted_data) {
-          // History tool: extracted_data IS the payload (has hcp_name + interactions[])
-          historyData = result.extracted_data;
-        } else if (result.extracted_data) {
-          // Log / edit tool: map to form fields as before
-          parsed = mapBackendRecord(result.extracted_data);
+        // If a new interaction was just created, store its ID as the active one
+        if (result?.message) {
+          const match = result.message.match(/INT-[A-Z0-9]+/);
+          if (match) {
+            activeInteractionId = match[0];
+          }
         }
 
+        if (tool_used === 'get_interaction_history' && result.extracted_data) {
+          historyData = result.extracted_data;
+        } else if (tool_used === 'update_interaction' && result.extracted_data) {
+  // 🔥 Merge update into existing form
+  dispatch(updateForm({
+    ...form,                     // keep existing data
+    ...mapBackendRecord({
+      ...form,                  // base
+      ...result.extracted_data  // override only updated fields
+    })
+  }));
+
+} else if (tool_used === 'get_interaction_history' && result.extracted_data) {
+  historyData = result.extracted_data;
+
+} else if (result.extracted_data) {
+  parsed = mapBackendRecord(result.extracted_data);
+}
       } catch (apiErr) {
         console.warn('API down, using mock:', apiErr.message);
         await new Promise(r => setTimeout(r, 1000));
         parsed = mockParseInteraction(msg);
         assistantText = buildAssistantReply(parsed);
-        usedMock = true;
       }
 
       if (!assistantText && !parsed && !historyData) {
@@ -161,7 +214,7 @@ export default function ChatPanel() {
         content: assistantText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         parsedData: parsed,
-        historyData,       
+        historyData,
       }));
 
     } catch (err) {
