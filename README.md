@@ -163,15 +163,3 @@ User message
      ↓
 Response with extracted_data (pre-fills the form)
 ```
-
-
-
-## Submission
-
-Built for the **AI-First CRM HCP Module** assignment (Round 1).
-- LangGraph ✅
-- Groq gemma2-9b-it ✅
-- React + Redux ✅
-- FastAPI ✅
-- PostgreSQL ✅
-- Google Inter font ✅
